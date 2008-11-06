@@ -1,14 +1,21 @@
+<%once>
+my $loaded_user = 0;
+</%once>
 <%init>
 
-# If the RT::User::UpdateFromExternal method is not available, then we are in
-# RT-3.8.0 or RT-3.8.1 and we need to work around a bug in the plugin system:
+use RT::Authen::ExternalAuth;
+
+# Work around a bug in the RT 3.8.0 and 3.8.1 plugin system (fixed in 3.8.2)
 # Temporarily force RT to reload RT::User, since it isn't being loaded
 # correctly as a plugin.
-unless (RT::User->can('UpdateFromExternal')) {
+unless ($loaded_user) {
     $RT::Logger->error("Working around bug in RT and reloading RT::User");
+    $loaded_user++;
     delete $INC{'RT/User.pm'};
+    delete $INC{'RT/User_Overlay.pm'};
     require RT::User;
 }
+######################################################################################
 
 # If the user is logging in, let's authenticate; if they can auth but don't load
 # (e.g. they don't have an account but external auth succeeds), we'll autocreate
@@ -16,71 +23,61 @@ unless (RT::User->can('UpdateFromExternal')) {
 unless ($session{'CurrentUser'}) {
     
     # Password has not been confirmed valid until we say so
-    my $password_validated;
-
-    # This WAS used to stop a pointless LookupExternalUserInfo
-    # called by UpdateFromExternal later on since it's already
-    # called by RT::User::Create if the user is autocreated
-    # but this has been deprecated pending a little bit of a
-    # rewrite since I realised that we're not calling
-    # CanonicalizeUserInfo but UpdateFromExternal which is the
-    # only code that checks whether the user is externally
-    # marked as disabled.
-    my $user_autocreated = 0;
+    my $password_validated = 0;
 
     # If $user has been passed by login page, 
     # or any other custom code previous to this
     if (defined ($user)) {
         $session{'CurrentUser'} = RT::CurrentUser->new();
+        
+        # Does user exist internally?
         $session{'CurrentUser'}->Load($user);
 
         # Unless we have loaded a valid user with a UserID
+        # check if user exists externally and autocreate if it does
         unless ($session{'CurrentUser'}->Id) {
-            # Start with a new SystemUser
-            my $UserObj = RT::User->new($RT::SystemUser);
-            # Set the user's name to the one we were given
-            my ($val, $msg) = $UserObj->SetName($user);
-
-            # If a password was given on the login page, validate it
-            if (defined($pass)) {
-                $password_validated = $UserObj->IsPassword($pass);
-            }
-            
-            # If the password was validated successfully
-            # start the autocreation process to create the user
-            # permanently in RT
-            if ($password_validated) {
-                    ### If there were a standard param to check for whether or not we
-                    ### should autocreate authenticated users, we'd check it here.
-                    my ($val, $msg) = 
-                      $UserObj->Create(%{ref($RT::AutoCreate) ? $RT::AutoCreate : {}},
-                                       Name   => $user,
-                                       Gecos  => $user,
-                                      );
-                    unless ($val) {
-                        $RT::Logger->error( "Couldn't create user $user: $msg" );
-                        return;
-                    }
-                    $RT::Logger->info(  "Autocreated authenticated user",
-                                        $UserObj->Name,
-                                        "(",
-                                        $UserObj->Id,
-                                        ")");
-                    $user_autocreated = 1;
-            }
-
-            # If we autocreated a user, then load the user as the CurrentUser in $session
-            # To RT, this means we have a valid, authenticated user
-            if ($UserObj->Id) {
-                my ($ret, $msg) = $session{'CurrentUser'}->Load($user);
-                unless ($ret) {
-                    $RT::Logger->error("Couldn't load user $user: $msg");
+            if(RT::Authen::ExternalAuth::UserExists($user)){
+                my $UserObj = RT::User->new($RT::SystemUser);
+            	my ($val, $msg) = 
+                  $UserObj->Create(%{ref($RT::AutoCreate) ? $RT::AutoCreate : {}},
+                                   Name   => $user,
+                                   Gecos  => $user,
+                                  );
+                unless ($val) {
+                    $RT::Logger->error( "Couldn't create user $user: $msg" );
+                    return;
                 }
+                $RT::Logger->info(  "Autocreated external user",
+                                    $UserObj->Name,
+                                    "(",
+                                    $UserObj->Id,
+                                    ")");
+                
+                $RT::Logger->debug("Loading new user (",
+                					$user,
+                					") into current session");
+                $session{'CurrentUser'}->Load($user);
             }
-        }
+        } 
     }
     
     # If we now have a completely valid RT user to play with...
+    if ($session{'CurrentUser'} && $session{'CurrentUser'}->Id) {
+	    
+	    # If a password was given on the login page, validate it
+	    if (defined($pass)) {
+	        $RT::Logger->debug("\$pass defined ($pass), Running IsPassword");
+	        $password_validated = $session{'CurrentUser'}->UserObj->IsPassword($pass);
+	    }
+	        
+	    unless($password_validated) {
+	        $RT::Logger->debug("Password Incorrect");
+	        delete $session{'CurrentUser'};
+	    }
+	}
+	    
+    # If we STILL have a completely valid RT user to play with...
+    # and therefore password has been validated...
     if ($session{'CurrentUser'} && $session{'CurrentUser'}->Id) {
         
         # Even if we have JUST created the user in RT, we are going to
@@ -89,7 +86,7 @@ unless ($session{'CurrentUser'}) {
         # the database, but more importantly, UpdateFromExternal will check 
         # whether the user is disabled or not which we have not been able to 
         # do during auto-create
-        $session{'CurrentUser'}->UserObj->UpdateFromExternal();
+        my ($updated,$update_msg) = RT::Authen::ExternalAuth::UpdateUserInfo($session{'CurrentUser'}->Name);
                 
         # Now that we definitely have up-to-date user information,
         # if the user is disabled, kick them out. Now!
@@ -107,8 +104,9 @@ unless ($session{'CurrentUser'}) {
     # done by the autohandler this Callback is extending if
     # we delete the session.
     
-    # If we have a full user and the session hasn't already been deleted
+    # If we **STILL** have a full user and the session hasn't already been deleted
     if ($session{'CurrentUser'} && $session{'CurrentUser'}->Id) {
+    	# Sanity check
         if($password_validated) {
             
             $RT::Logger->info(  "Successful login for",
