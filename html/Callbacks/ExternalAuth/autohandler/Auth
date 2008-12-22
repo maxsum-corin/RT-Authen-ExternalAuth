@@ -13,6 +13,7 @@ unless ($loaded_user) {
     $loaded_user++;
     delete $INC{'RT/User.pm'};
     delete $INC{'RT/User_Overlay.pm'};
+    delete $INC{'RT/User_Vendor.pm'};
     require RT::User;
 }
 ######################################################################################
@@ -37,7 +38,7 @@ unless ($session{'CurrentUser'}) {
         # check if user exists externally and autocreate if it does
         unless ($session{'CurrentUser'}->Id) {
             if(RT::Authen::ExternalAuth::UserExists($user)){
-                my $UserObj = RT::User->new($RT::SystemUser);
+				my $UserObj = RT::User->new($RT::SystemUser);
             	my ($val, $msg) = 
                   $UserObj->Create(%{ref($RT::AutoCreate) ? $RT::AutoCreate : {}},
                                    Name   => $user,
