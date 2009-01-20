@@ -1,8 +1,11 @@
 package RT::Authen::ExternalAuth::LDAP;
+
 use Net::LDAP qw(LDAP_SUCCESS LDAP_PARTIAL_RESULTS);
 use Net::LDAP::Util qw(ldap_error_name);
 use Net::LDAP::Filter;
-use Data::Dumper;
+
+use strict;
+
 require Net::SSLeay if $RT::ExternalServiceUsesSSLorTLS;
 
 sub GetAuth {
@@ -137,7 +140,7 @@ sub GetAuth {
                         "External Auth OK (",
                         $service,
                         "):", 
-                        $name_to_auth);
+                        $username);
     return 1;
 
 }
@@ -174,9 +177,9 @@ sub CanonicalizeUserInfo {
         $RT::Logger->debug( "LDAP Filter invalid or not present.");
     }
 
-    unless ($base) {
+    unless (defined($base)) {
         $RT::Logger->critical(  (caller(0))[3],
-                                "No base given");
+                                "LDAP baseDN not defined");
         # Drop out to the next external information service
         return ($found, %params);
     }
@@ -390,7 +393,7 @@ sub UserDisabled {
 
     # We only need the UID for confirmation now, 
     # the other information would waste time and bandwidth
-    @attrs = ('uid'); 
+    my @attrs = ('uid'); 
     
     $RT::Logger->debug( "LDAP Search === ",
                         "Base:",
