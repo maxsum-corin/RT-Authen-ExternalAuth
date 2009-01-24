@@ -64,16 +64,20 @@ Set($ExternalSettings,      {   # AN EXAMPLE DB SERVICE
                                                         # e.g. if the passwords are stored using the MySQL v3.23 "PASSWORD"
                                                         # function, then you will need Crypt::MySQL::password, but for the
                                                         # MySQL4+ password function you will need Crypt::MySQL::password41
-                                                        # Alternatively, you could use Crypt::MD5::md5_hex or any other
+                                                        # Alternatively, you could use Digest::MD5::md5_hex or any other
                                                         # encryption subroutine you can load in your perl installation
                                                         'p_enc_pkg'                 =>  'Crypt::MySQL',
                                                         'p_enc_sub'                 =>  'password',
+                                                        # If your p_enc_sub takes a salt as a second parameter, 
+                                                        # uncomment this line to add your salt
+                                                        #'p_salt'                    =>  'SALT',
+                                                        #
                                                         # The field and values in the table that determines if a user should
                                                         # be disabled. For example, if the field is 'user_status' and the values
                                                         # are ['0','1','2','disabled'] then the user will be disabled if their
                                                         # user_status is set to '0','1','2' or the string 'disabled'.
                                                         # Otherwise, they will be considered enabled.
-                                                        'd_field'                   =>  'userSupportAccess',
+                                                        'd_field'                   =>  'disabled',
                                                         'd_values'                  =>  ['0'],
                                                         ## RT ATTRIBUTE MATCHING SECTION
                                                         # The list of RT attributes that uniquely identify a user
@@ -118,6 +122,8 @@ Set($ExternalSettings,      {   # AN EXAMPLE DB SERVICE
                                                         #
                                                         # Should we try to use TLS to encrypt connections?
                                                         'tls'                       =>  0,
+                                                        # SSL Version to provide to Net::SSLeay *if* using SSL
+                                                        'ssl_version'               =>  3,
                                                         # What other args should I pass to Net::LDAP->new($host,@args)?
                                                         'net_ldap_args'             => [    version =>  3   ],
                                                         # Does authentication depend on group membership? What group name?
